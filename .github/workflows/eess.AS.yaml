@@ -24,4 +24,10 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run Arxiv Summarizer
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL }}
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          OPENAI_MODEL_NAME: ${{ vars.OPENAI_MODEL_NAME }}
+          SUMMARY_LANGUAGE: ${{ vars.SUMMARY_LANGUAGE }}
         run: python arxiv_summarizer.py eess.AS
