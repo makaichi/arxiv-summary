@@ -8,7 +8,7 @@ Before you can use this project, you'll need the following:
 
 1.  **OpenAI API Key:** You'll need an API key from OpenAI to use their language models.  Create an account and obtain your API key from [OpenAI](https://platform.openai.com/).
 
-2.  **Feishu (Lark) Webhook URL:** You'll need to create an incoming webhook in your Feishu group to receive the summaries.  Refer to the Feishu documentation on how to set up a webhook: [Feishu Incoming Webhooks](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/bot/incoming-webhook/create-webhook).  **Important:** Make sure your webhook has the necessary permissions in Feishu to post messages to the desired group.
+2.  **Feishu (Lark) Webhook URL:** You'll need to create an incoming webhook in your Feishu group to receive the summaries.  Refer to the Feishu documentation on how to set up a webhook: [Feishu Incoming Webhooks](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot?lang=zh-CN).  **Important:** Make sure your webhook has the necessary permissions in Feishu to post messages to the desired group.
 
 ## Setup Instructions
 
