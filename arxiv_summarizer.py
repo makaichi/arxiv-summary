@@ -196,19 +196,37 @@ class ArxivSummarizer:
             print(f"An error occurred: {e}")
             return None
 
-    def run(self, category: str):
+    def run(self, category: str, max_papers_split: int = 10):
         papers = self.process_arxiv_url(category)
         if self.webhook_url:
-            self.send_arxiv_data_via_webhook(papers, category)
+            papers_split = [
+                papers[i : i + max_papers_split] for i in range(0, len(papers), max_papers_split)
+            ]
+            for i, papers in enumerate(papers_split):
+                if len(papers_split) == 1:
+                    suffix = ""
+                else:
+                    suffix = f" ({i+1}/{len(papers_split)})"
+
+                self.send_arxiv_data_via_webhook(papers, category + suffix)
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Summarize Arxiv papers.")
+    parser.add_argument(
+        "category", nargs="?", default="eess.AS", help="Arxiv category (default: eess.AS)"
+    )
+    parser.add_argument(
+        "--max_papers_split",
+        type=int,
+        default=10,
+        help="Maximum number of papers to send in a single webhook request (default: 10)",
+    )
+
+    args = parser.parse_args()
+
     summarizer = ArxivSummarizer()
 
-    if len(os.sys.argv) > 1:
-        category = os.sys.argv[1]
-    else:
-        category = "eess.AS"
-        print(f"Using default arXiv category: {category}.")
-
-    summarizer.run(category)
+    summarizer.run(args.category, args.max_papers_split)
