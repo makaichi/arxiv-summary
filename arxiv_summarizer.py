@@ -78,9 +78,12 @@ class ArxivSummarizer:
             search = arxiv.Search(id_list=[paper_id])
             results = client.results(search)
             paper = next(results)  # Get the first result
+            authors = [author.name for author in paper.authors]
+            if len(authors) > 3:
+                authors = authors[:2] + ["et al."]
             return {
                 "title": paper.title,
-                "authors": ", ".join([author.name for author in paper.authors]),
+                "authors": ", ".join(authors),
                 "abstract": paper.summary,
                 "url": paper.entry_id,
             }
