@@ -202,9 +202,9 @@ class ArxivSummarizer:
     def run(self, category: str, max_papers_split: int = 10):
         papers = self.process_arxiv_url(category)
         if self.webhook_url:
-            papers_split = [
-                papers[i : i + max_papers_split] for i in range(0, len(papers), max_papers_split)
-            ]
+            num_splits = (len(papers) + max_papers_split - 1) // max_papers_split
+            split_size = (len(papers) + num_splits - 1) // num_splits
+            papers_split = [papers[i : i + split_size] for i in range(0, len(papers), split_size)]
             for i, papers in enumerate(papers_split):
                 if len(papers_split) == 1:
                     suffix = ""
