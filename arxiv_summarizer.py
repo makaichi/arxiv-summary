@@ -137,11 +137,12 @@ class ArxivSummarizer:
                     papers.append(metadata)
                 except Exception as e:
                     logging.error(f"Failed to process paper ID {paper_id}.  See logs for details.")
+            if not papers:
+                raise ValueError("No papers were processed.")
             return papers
 
         except Exception as e:
             logging.error(f"An unhandled error occurred: {e}")
-            print("An error occurred.  Check the logs for details.")
             return None
 
     def send_arxiv_data_via_webhook(self, data_list: list, category: str):
@@ -201,6 +202,9 @@ class ArxivSummarizer:
 
     def run(self, category: str, max_papers_split: int = 10):
         papers = self.process_arxiv_url(category)
+        if not papers:
+            raise ValueError("Processing failed.")
+
         if self.webhook_url:
             num_splits = (len(papers) + max_papers_split - 1) // max_papers_split
             split_size = (len(papers) + num_splits - 1) // num_splits
