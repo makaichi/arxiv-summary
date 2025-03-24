@@ -108,10 +108,10 @@ class ArxivSummarizer:
             return completion.choices[0].message.content.strip()
 
         except openai.APIConnectionError as e:
-            print(f"Failed to connect to OpenAI API: {e}")
+            logging.error(f"Failed to connect to OpenAI API: {e}")
             raise
         except openai.RateLimitError as e:
-            print(f"OpenAI API rate limit exceeded: {e}")
+            logging.error(f"OpenAI API rate limit exceeded: {e}")
             raise
         except Exception as e:
             raise self._handle_exception(e, "Error during summarization:")
@@ -159,7 +159,6 @@ class ArxivSummarizer:
 
         Returns:
             The response object from the webhook for a successful send, or None if there's an error.
-            Prints error messages to the console.
         """
 
         try:
@@ -188,16 +187,16 @@ class ArxivSummarizer:
 
             # Check the response status code.
             if response.status_code == 200:
-                print("Successfully sent data for all papers.")
+                logging.info("Successfully sent data for all papers.")
                 return response
             else:
-                print(
+                logging.error(
                     f"Error sending data. Status code: {response.status_code}. Response text: {response.text}"
                 )
                 return None
 
         except Exception as e:
-            print(f"An error occurred: {e}")
+            logging.error(f"An error occurred: {e}")
             return None
 
     def run(self, category: str, max_papers_split: int = 10):
