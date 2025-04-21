@@ -105,7 +105,15 @@ class ArxivSummarizer:
             completion = self.client.chat.completions.create(
                 model=self.openai_model_name, messages=[{"role": "user", "content": prompt}]
             )
-            return completion.choices[0].message.content.strip()
+            summary = completion.choices[0].message.content.strip()
+
+            prompt = f"Translate the following title of article to {self.summary_language}, only respond with the translated title: {title}"
+            completion = self.client.chat.completions.create(
+                model=self.openai_model_name, messages=[{"role": "user", "content": prompt}]
+            )
+            translated_title = completion.choices[0].message.content.strip()
+
+            return translated_title, summary
 
         except openai.APIConnectionError as e:
             logging.error(f"Failed to connect to OpenAI API: {e}")
@@ -132,8 +140,9 @@ class ArxivSummarizer:
                     metadata = self.get_paper_metadata(paper_id)
                     title = metadata["title"]
                     abstract = metadata["abstract"]
-                    summary = self.summarize_paper(title, abstract)
+                    translated_title, summary = self.summarize_paper(title, abstract)
                     metadata["summary"] = summary
+                    metadata["translated_title"] = translated_title
                     papers.append(metadata)
                 except Exception as e:
                     logging.error(f"Failed to process paper ID {paper_id}.  See logs for details.")
@@ -167,6 +176,7 @@ class ArxivSummarizer:
             message_text = f"{today} Arxiv papers summary for {category}:\n\n"
             for paper_data in data_list:
                 message_text += f"Title: {paper_data['title']}\n"
+                message_text += f"       {paper_data['translated_title']}\n"
                 message_text += f"Authors: {paper_data['authors']}\n"
                 message_text += f"URL: {paper_data['url']}\n"
                 message_text += f"Summary: {paper_data['summary']}\n\n"  # Limit summary length
