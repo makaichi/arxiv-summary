@@ -3,7 +3,7 @@ name: Arxiv Summarizer
 on:
   schedule:
     # Runs every day at 00:15 UTC, which is 08:15 Beijing Time (UTC+8)
-    - cron: "15 0 * * *"
+    - cron: "45 23 * * 0-4"
 
 jobs:
   run_summarizer:
