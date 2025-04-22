@@ -176,7 +176,7 @@ class ArxivSummarizer:
             message_text = f"{today} Arxiv papers summary for {category}:\n\n"
             for paper_data in data_list:
                 message_text += f"Title: {paper_data['title']}\n"
-                message_text += f"       {paper_data['translated_title']}\n"
+                message_text += f"{paper_data['translated_title']}\n"
                 message_text += f"Authors: {paper_data['authors']}\n"
                 message_text += f"URL: {paper_data['url']}\n"
                 message_text += f"Summary: {paper_data['summary']}\n\n"  # Limit summary length
