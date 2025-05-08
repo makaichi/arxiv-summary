@@ -85,7 +85,7 @@ class ArxivSummarizer:
                 "title": paper.title,
                 "authors": ", ".join(authors),
                 "abstract": paper.summary,
-                "url": paper.entry_id,
+                "url": paper.entry_id.replace("http://", "https://"),
             }
 
         except Exception as e:
