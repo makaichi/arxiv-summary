@@ -1,3 +1,10 @@
+<!--
+ * @Author: Zerui Han <hanzr.nju@outlook.com>
+ * @Date: 2025-06-24 11:29:48
+ * @Description: 
+ * @FilePath: /arxiv-summary/readme.md
+ * @LastEditTime: 2025-06-24 12:12:29
+-->
 # Arxiv Summarizer with OpenAI and Feishu Webhook
 
 This project automatically summarizes recent Arxiv papers in a specified subject category using the OpenAI API and sends the summary to a Feishu (Lark) webhook. It's designed to run regularly using GitHub Actions.
@@ -31,6 +38,7 @@ Follow these steps to set up the Arxiv Summarizer:
     *   In the same "Settings -> Security -> Secrets and variables -> Actions -> Variables" section, add the following variables:
         *   **`OPENAI_MODEL_NAME`:** The name of the OpenAI model you want to use for summarization (e.g., `gpt-3.5-turbo`, `gpt-4`). Refer to the OpenAI documentation for available models.
         *   **`SUMMARY_LANGUAGE`:**  The language in which you want the summary to be generated (e.g., `English`, `Chinese`).
+		*   **`USER_INTEREST`:** (Optional) Your specific areas of interest (e.g., speech recognition, neural networks, audio processing). If provided, the papers will be scored for relevance to these keywords and sorted accordingly. If left blank, all papers will be treated with equal relevance.
 
 4.  **Configure the Workflow:**
 

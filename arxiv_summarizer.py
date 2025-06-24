@@ -28,7 +28,7 @@ class ArxivSummarizer:
     def _setup_logging(self):
         """Configures logging."""
         logging.basicConfig(
-            level=logging.ERROR,
+            level=logging.INFO,
             format="%(asctime)s [%(levelname)s] %(message)s",
             handlers=[logging.StreamHandler(sys.stdout)],  # Output to console
         )
@@ -42,10 +42,17 @@ class ArxivSummarizer:
         self.openai_model_name = os.getenv("OPENAI_MODEL_NAME", "gpt-3.5-turbo")  # Default model
         self.summary_language = os.getenv("SUMMARY_LANGUAGE", "English")  # Default language
         self.webhook_url = os.getenv("WEBHOOK_URL")
+        self.user_interest = os.getenv("USER_INTEREST") 
 
         if not self.openai_api_key:
             logging.error("OPENAI_API_KEY not found in environment variables.")
             raise ValueError("OPENAI_API_KEY is required.")
+        
+        if self.user_interest:
+            logging.info(f"User interest specified: '{self.user_interest}'")
+        else:
+            logging.info("No user interest specified. All papers will have relevance 0.")
+
 
     def _handle_exception(self, e, message="An error occurred:"):
         """Logs and potentially re-raises an exception."""
@@ -56,6 +63,7 @@ class ArxivSummarizer:
         """
         Fetches all paper links (starting with /abs/) from an arXiv page.
         """
+        logging.info(f"Fetching paper links from: {url}")
         try:
             response = requests.get(url)
             response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
@@ -63,15 +71,19 @@ class ArxivSummarizer:
             links = [
                 a["href"] for a in soup.find_all("a", href=True) if a["href"].startswith("/abs/")
             ]
+            logging.info(f"Found {len(links)} raw links.")
             return links
         except requests.exceptions.RequestException as e:
+            logging.error(f"Network error fetching arXiv page {url}: {e}")
             raise  # Re-raise the exception to be handled upstream
         except Exception as e:
-            raise self._handle_exception(e, "Error parsing arXiv page:")
+            # Use _handle_exception for consistency if it should halt execution
+            self._handle_exception(e, "Error parsing arXiv page:") 
 
     def get_paper_metadata(self, paper_id: str) -> dict:
         """
         Retrieves paper metadata (title, abstract) from arXiv using the arxiv library.
+        The arxiv library typically fetches the latest version if a base ID is provided.
         """
         try:
             client = arxiv.Client()
@@ -79,54 +91,113 @@ class ArxivSummarizer:
             results = client.results(search)
             paper = next(results)  # Get the first result
             authors = [author.name for author in paper.authors]
+            # Limit authors to avoid overly long strings
             if len(authors) > 3:
                 authors = authors[:2] + ["et al."]
             return {
                 "title": paper.title,
                 "authors": ", ".join(authors),
                 "abstract": paper.summary,
-                "url": paper.entry_id.replace("http://", "https://"),
+                "url": paper.entry_id.replace("http://", "https://"), # Ensure HTTPS
             }
 
         except Exception as e:
-            raise self._handle_exception(e, f"Error fetching metadata for paper ID {paper_id}:")
+            # Log and re-raise, but allow process_arxiv_url to catch and continue
+            logging.error(f"Error fetching metadata for paper ID {paper_id}: {e}")
+            raise
 
-    def summarize_paper(self, title: str, abstract: str) -> str:
+    def summarize_paper(self, title: str, abstract: str) -> tuple[str, str]:
         """
-        Summarizes the paper using the OpenAI API.
+        Summarizes the paper and translates its title using the OpenAI API.
+        Returns (translated_title, summary).
         """
         try:
-            prompt = f"""Summarize the following research paper. Provide the most important information in up to 3 sentences. Respond in {self.summary_language}.
+            # Summarization
+            summary_prompt = f"""Summarize the following research paper. Provide the most important information in up to 3 sentences. Respond in {self.summary_language}.
 
             Title: {title}
             Abstract: {abstract}
             """
-
-            completion = self.client.chat.completions.create(
-                model=self.openai_model_name, messages=[{"role": "user", "content": prompt}]
+            summary_completion = self.client.chat.completions.create(
+                model=self.openai_model_name,
+                messages=[{"role": "user", "content": summary_prompt}],
+                temperature=0.7 # Can be a bit creative for summary
             )
-            summary = completion.choices[0].message.content.strip()
+            summary = summary_completion.choices[0].message.content.strip()
 
-            prompt = f"Translate the following title of article to {self.summary_language}, only respond with the translated title: {title}"
-            completion = self.client.chat.completions.create(
-                model=self.openai_model_name, messages=[{"role": "user", "content": prompt}]
+            # Title Translation
+            title_prompt = f"Translate the following title of article to {self.summary_language}, only respond with the translated title: {title}"
+            title_completion = self.client.chat.completions.create(
+                model=self.openai_model_name,
+                messages=[{"role": "user", "content": title_prompt}],
+                temperature=0.0 # Strict translation
             )
-            translated_title = completion.choices[0].message.content.strip()
+            translated_title = title_completion.choices[0].message.content.strip()
 
             return translated_title, summary
 
         except openai.APIConnectionError as e:
-            logging.error(f"Failed to connect to OpenAI API: {e}")
+            logging.error(f"Failed to connect to OpenAI API for summarization/translation: {e}")
             raise
         except openai.RateLimitError as e:
-            logging.error(f"OpenAI API rate limit exceeded: {e}")
+            logging.error(f"OpenAI API rate limit exceeded for summarization/translation: {e}")
             raise
         except Exception as e:
-            raise self._handle_exception(e, "Error during summarization:")
+            # Log and re-raise, but allow process_arxiv_url to catch and continue
+            logging.error(f"Error during summarization or translation for paper '{title}': {e}")
+            raise
 
-    def process_arxiv_url(self, category: str):
+    def evaluate_relevance(self, title: str, abstract: str, user_interest: str) -> int:
         """
-        Main function to orchestrate the process.
+        Evaluates the relevance of a paper to the user's interest using the OpenAI API.
+        Returns 0 (low), 1 (medium), or 2 (high).
+        """
+        prompt = f"""Given the following research paper's title and abstract, and a user's area of interest,
+        rate the relevance of the paper to the user's interest.
+        Respond with only a single integer:
+        0 for Low relevance
+        1 for Medium relevance
+        2 for High relevance
+
+        User's Interest: {user_interest}
+
+        Paper Title: {title}
+        Paper Abstract: {abstract}
+
+        Relevance Score (0, 1, or 2):"""
+
+        try:
+            completion = self.client.chat.completions.create(
+                model=self.openai_model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0, # Make it deterministic for score
+                max_tokens=1 # We only expect a single digit
+            )
+            score_str = completion.choices[0].message.content.strip()
+            try:
+                score = int(score_str)
+                if score not in [0, 1, 2]:
+                    logging.warning(f"LLM returned an unexpected relevance score: '{score_str}'. Defaulting to 0 for paper '{title}'.")
+                    return 0
+                return score
+            except ValueError:
+                logging.warning(f"Could not parse relevance score (not an integer) from LLM for paper '{title}'. Response was: '{score_str}'. Defaulting to 0.")
+                return 0
+        except openai.APIConnectionError as e:
+            logging.error(f"Failed to connect to OpenAI API for relevance check: {e}")
+            raise # Re-raise critical API errors
+        except openai.RateLimitError as e:
+            logging.error(f"OpenAI API rate limit exceeded for relevance check: {e}")
+            raise # Re-raise critical API errors
+        except Exception as e: # Catch any other unexpected errors from OpenAI client
+            logging.error(f"An unexpected error occurred during relevance evaluation for paper '{title}': {e}")
+            return 0 # Default to low relevance on general error
+
+
+    def process_arxiv_url(self, category: str) -> list[dict] | None:
+        """
+        Main function to orchestrate the process of fetching, summarizing, and evaluating papers.
+        Returns a list of processed paper metadata dictionaries.
         """
         arxiv_url = f"https://arxiv.org/list/{category}/new"
         papers = []
@@ -143,43 +214,72 @@ class ArxivSummarizer:
                     translated_title, summary = self.summarize_paper(title, abstract)
                     metadata["summary"] = summary
                     metadata["translated_title"] = translated_title
+
+                    if self.user_interest:
+                        relevance_score = self.evaluate_relevance(title, abstract, self.user_interest)
+                        metadata["relevance"] = relevance_score
+                        logging.info(f"Relevance for '{title}': {relevance_score}")
+                    else:
+                        metadata["relevance"] = 0 # Default to 0 if no interest specified
+
                     papers.append(metadata)
+                except (openai.APIConnectionError, openai.RateLimitError) as e:
+                    # These are critical errors, re-raise to stop processing
+                    logging.error(f"Critical OpenAI API error encountered for paper ID {paper_id}: {e}")
+                    raise # Stop the entire run
                 except Exception as e:
-                    logging.error(f"Failed to process paper ID {paper_id}.  See logs for details.")
+                    # For other errors (e.g., arxiv library, parsing), just log and continue to the next paper
+                    logging.error(f"Failed to process paper ID {paper_id}. Error: {e}")
+
             if not papers:
-                raise ValueError("No papers were processed.")
+                logging.warning("No papers were successfully processed.")
+                return None # Indicate no papers were processed
+
+            # --- Sort papers by relevance if user_interest is set ---
+            if self.user_interest:
+                # Sort by relevance (descending)
+                papers.sort(key=lambda x: x.get("relevance", 0), reverse=True)
+                logging.info(f"Sorted {len(papers)} papers by relevance (descending).")
+            # --- End sorting ---
+
             return papers
 
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Network error fetching arXiv page or during initial processing: {e}")
+            return None
         except Exception as e:
-            logging.error(f"An unhandled error occurred: {e}")
+            logging.error(f"An unhandled error occurred during overall paper processing: {e}")
             return None
 
-    def send_arxiv_data_via_webhook(self, data_list: list, category: str):
+    def send_arxiv_data_via_webhook(self, data_list: list, category_with_suffix: str):
         """
         Sends Arxiv paper data in a single message to a webhook.
 
         Args:
             data_list: A list of dictionaries, where each dictionary represents an Arxiv paper
                     and contains keys like 'title', 'url', 'authors', 'abstract', 'summary'.
-            webhook_url: The URL of the webhook.
-            message_type: The type of message to send.  Defaults to "text".  Can be other types
-                        supported by the webhook (e.g., "card" if your webhook supports rich cards).
-                        You might need to adapt the content construction depending on the message type.
+            category_with_suffix: The Arxiv category string, potentially with a batch suffix.
 
         Returns:
             The response object from the webhook for a successful send, or None if there's an error.
         """
+        if not self.webhook_url:
+            logging.warning("WEBHOOK_URL not set. Skipping sending data via webhook.")
+            return None
 
         try:
             # Construct the message content by concatenating information from all papers.
             today = datetime.datetime.now().strftime("%Y-%m-%d")
-            message_text = f"{today} Arxiv papers summary for {category}:\n\n"
+            message_text = f"{today} Arxiv papers summary for {category_with_suffix}:\n\n"
             for paper_data in data_list:
                 message_text += f"Title: {paper_data['title']}\n"
                 message_text += f"{paper_data['translated_title']}\n"
                 message_text += f"Authors: {paper_data['authors']}\n"
                 message_text += f"URL: {paper_data['url']}\n"
-                message_text += f"Summary: {paper_data['summary']}\n\n"  # Limit summary length
+                if "relevance" in paper_data: # Add relevance if it exists
+                    relevance_map = {0: "Low", 1: "Medium", 2: "High"}
+                    message_text += f"Relevance: {relevance_map.get(paper_data['relevance'], 'N/A')}\n"
+                message_text += f"Summary: {paper_data['summary']}\n\n"
             # Remove the trailing newline characters
             message_text = message_text.rstrip("\n")
 
@@ -193,26 +293,29 @@ class ArxivSummarizer:
 
             # Send the request to the webhook.
             headers = {"Content-Type": "application/json"}
+            logging.info(f"Sending {len(data_list)} papers to webhook for category {category_with_suffix}...")
             response = requests.post(self.webhook_url, data=json_payload, headers=headers)
 
             # Check the response status code.
             if response.status_code == 200:
-                logging.info("Successfully sent data for all papers.")
+                logging.info(f"Successfully sent data for {len(data_list)} papers in batch '{category_with_suffix}'.")
                 return response
             else:
                 logging.error(
-                    f"Error sending data. Status code: {response.status_code}. Response text: {response.text}"
+                    f"Error sending data for batch '{category_with_suffix}'. Status code: {response.status_code}. Response text: {response.text}"
                 )
                 return None
 
         except Exception as e:
-            logging.error(f"An error occurred: {e}")
+            logging.error(f"An error occurred while sending webhook for batch '{category_with_suffix}': {e}")
             return None
 
     def run(self, category: str, max_papers_split: int = 10):
+        logging.info(f"Starting Arxiv summarization for category: {category}")
         papers = self.process_arxiv_url(category)
         if not papers:
-            raise ValueError("Processing failed.")
+            logging.warning("Processing failed or no papers were found. Exiting.")
+            return # Exit gracefully if no papers or error during processing
 
         if self.webhook_url:
             num_splits = (len(papers) + max_papers_split - 1) // max_papers_split
@@ -225,6 +328,8 @@ class ArxivSummarizer:
                     suffix = f" ({i+1}/{len(papers_split)})"
 
                 self.send_arxiv_data_via_webhook(papers, category + suffix)
+        else:
+            logging.info("Webhook URL not configured. Papers will not be sent.")
 
 
 if __name__ == "__main__":
@@ -243,6 +348,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    summarizer = ArxivSummarizer()
+    try:
+        summarizer = ArxivSummarizer()
+        summarizer.run(args.category, args.max_papers_split)
+    except ValueError as e:
+        logging.critical(f"Configuration error: {e}. Please check your .env file.")
+    except Exception as e:
+        logging.critical(f"An unrecoverable error occurred during execution: {e}", exc_info=True)
 
-    summarizer.run(args.category, args.max_papers_split)
