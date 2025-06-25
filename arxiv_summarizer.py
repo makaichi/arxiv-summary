@@ -174,7 +174,7 @@ class ArxivSummarizer:
                 temperature=0.0, # Make it deterministic for score
                 max_tokens=1 # We only expect a single digit
             )
-            score_str = completion.choices[0].message.content.strip()
+            score_str = completion.choices[0].message.content
             try:
                 score = int(score_str)
                 if score not in [0, 1, 2]:
