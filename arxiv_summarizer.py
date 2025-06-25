@@ -152,12 +152,12 @@ class ArxivSummarizer:
         Evaluates the relevance of a paper to the user's interest using the OpenAI API.
         Returns 0 (low), 1 (medium), or 2 (high).
         """
-        prompt = f"""Given the following research paper's title and abstract, and a user's area of interest,
+        prompt = f"""Given the following research paper's title and abstract, and a (list of) user's area of interest,
         rate the relevance of the paper to the user's interest.
         Respond with only a single integer:
-        0 for Low relevance
-        1 for Medium relevance
-        2 for High relevance
+        0 for Low relevance to all of the user's interests,
+        1 for Medium relevance to any of the user's interests,
+        2 for High relevance to any of the user's interests.
 
         User's Interest: {user_interest}
 
