@@ -123,7 +123,8 @@ class ArxivSummarizer:
                 messages=[{"role": "user", "content": summary_prompt}],
                 temperature=0.7 # Can be a bit creative for summary
             )
-            summary = summary_completion.choices[0].message.content.strip()
+            # summary = summary_completion.choices[0].message.content.strip()
+            summary = summary_completion.choices[0].message.content
 
             # Title Translation
             title_prompt = f"Translate the following title of article to {self.summary_language}, only respond with the translated title: {title}"
