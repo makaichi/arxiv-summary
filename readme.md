@@ -3,9 +3,11 @@
  * @Date: 2025-06-24 11:29:48
  * @Description: 
  * @FilePath: /arxiv-summary/readme.md
- * @LastEditTime: 2025-06-24 12:12:29
+ * @LastEditTime: 2025-06-26 10:24:15
 -->
 # Arxiv Summarizer with OpenAI and Feishu Webhook
+
+[简体中文](readme.zh.md)
 
 This project automatically summarizes recent Arxiv papers in a specified subject category using the OpenAI API and sends the summary to a Feishu (Lark) webhook. It's designed to run regularly using GitHub Actions.
 
@@ -30,7 +32,7 @@ Follow these steps to set up the Arxiv Summarizer:
     *   In the left sidebar, click on "Security", then "Secrets and variables", and finally "Actions."
     *   Add the following secrets:
         *   **`OPENAI_API_KEY`:**  Your OpenAI API key.
-        *   **`OPENAI_BASE_URL`:** (Optional)  The base URL for the OpenAI API.  **Important:** Only set this if you are using a proxy or a different endpoint for OpenAI. If you're using the standard OpenAI API, leave this blank and the script will default to the correct URL.
+        *   **`OPENAI_BASE_URL`:** (Optional) The base URL for the API endpoint. **Important:** If you are using a proxy, a different endpoint for OpenAI, or an OpenAI-compatible API provider (e.g., [ModelScope](https://www.modelscope.cn/docs/model-service/API-Inference/intro)), you must set this variable. If you're using the standard OpenAI API, leave this blank.
         *   **`WEBHOOK_URL`:** Your Feishu webhook URL.
 
 3.  **Configure GitHub Variables:**
@@ -42,8 +44,9 @@ Follow these steps to set up the Arxiv Summarizer:
 
 4.  **Configure the Workflow:**
 
-    *   The workflow file (`.github/workflows/eess.AS.yaml`) is already set up to run the summarizer every day at 00:15 UTC (08:15 Beijing Time).
+    *   The workflow file (`.github/workflows/eess.AS.yaml`) is already set up to run the summarizer every day at 00:02 UTC (08:02 Beijing Time).
     *   If you want to change the schedule, edit the `cron` expression in the `.github/workflows/eess.AS.yaml` file.  Refer to the GitHub Actions documentation for cron syntax.
+    *   **Note on Scheduling:** Please be aware that there can be a significant latency for scheduled GitHub Actions. For example, a workflow scheduled for 08:02 Beijing Time might not execute until around 09:50. Additionally, Arxiv typically refreshes its daily papers around 09:00 Beijing Time. Therefore, it is recommended not to set the schedule too early to ensure you are summarizing the latest papers.
 
 5.  **Enable GitHub Actions:**  GitHub Actions should be enabled by default for your forked repository.  If not, go to the "Actions" tab in your repository and enable them.
 
@@ -72,6 +75,3 @@ The Arxiv summarizer will run automatically according to the schedule defined in
 *   **Security:** Do not hardcode your API keys or webhook URLs in the code. Always use GitHub Secrets for sensitive information.
 
 *   **Arxiv Usage:** Be respectful of Arxiv's usage policies and avoid excessive scraping.
-
-*   **Custom Base URL:** If you want to use a custom base URL, remember to set the **`OPENAI_BASE_URL`** in your GitHub secrets.
-
