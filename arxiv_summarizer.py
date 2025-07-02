@@ -83,10 +83,11 @@ class ArxivSummarizer:
                         end_index = min(len(lines), author_line_indices[-1] + 20)
 
                         context_lines = lines[start_index:end_index]
+                        joined_context = "\n".join(context_lines)
 
                         prompt = f"""The following lines are extracted from a .tex file. Please identify the author affiliations.
                         Tex content:
-                        {"\n".join(context_lines)}
+                        {joined_context}
                         
                         If the number of affiliations is more than three, use etc (等) to indicate the rest, and use ';' to separate them.
                         Respond in {self.summary_language}. If no affiliations are found, respond with 'None'.
