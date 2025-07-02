@@ -31,5 +31,4 @@ jobs:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
           OPENAI_MODEL_NAME: ${{ vars.OPENAI_MODEL_NAME }}
           SUMMARY_LANGUAGE: ${{ vars.SUMMARY_LANGUAGE }}
-          USER_INTEREST: "music source separation, music information retrieval, audio signal processing, audio understanding, spatial audio, audio language model"
-        run: python arxiv_summarizer.py eess.AS
+        run: python arxiv_summarizer.py eess.AS --user_interest "music source separation, music information retrieval, audio signal processing, audio understanding, spatial audio, audio language model" --filter_level "mid"
