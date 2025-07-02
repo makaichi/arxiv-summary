@@ -40,7 +40,6 @@
     *   在相同的“Settings -> Security -> Secrets and variables -> Actions -> Variables”部分，添加以下变量：
         *   **`OPENAI_MODEL_NAME`：** 您希望用于摘要的 OpenAI 模型名称（例如，`gpt-3.5-turbo`，`gpt-4`）。请参阅 OpenAI 文档了解可用模型。
         *   **`SUMMARY_LANGUAGE`：** 您希望生成摘要的语言（例如，`English`，`Chinese`）。
-		*   **`USER_INTEREST`：** (可选) 您的特定兴趣领域（例如，语音识别、神经网络、音频处理）。如果提供，论文将根据这些关键词进行相关性评分并相应排序。如果留空，所有论文将被视为同等相关。
 
 4.  **配置工作流：**
 
@@ -56,13 +55,15 @@ Arxiv 摘要工具将根据 `.github/workflows/eess.AS.yml` 文件中定义的�
 
 ## 自定义
 
-*   **主题类别：** 该脚本目前摘要 `eess.AS` 类别（音频和语音处理）的论文。您可以通过修改 `.github/workflows/eess.AS.yml` 文件中传递给 `arxiv_summarizer.py` 脚本的参数来更改此设置：
+*   **主题类别、用户兴趣和过滤级别：** 该脚本目前摘要 `eess.AS` 类别（音频和语音处理）的论文。您可以通过修改 `.github/workflows/eess.AS.yml` 文件中传递给 `arxiv_summarizer.py` 脚本的参数来更改此设置：
 
     ```yaml
-        run: python arxiv_summarizer.py YOUR_CATEGORY
+        run: python arxiv_summarizer.py YOUR_CATEGORY --user_interest "您的兴趣" --filter_level "mid"
     ```
 
-    将 `YOUR_CATEGORY` 替换为所需的 Arxiv 主题类别代码（例如，`cs.AI`，`math.ST`）。请参阅 Arxiv 文档了解可用类别列表。
+    *   将 `YOUR_CATEGORY` 替换为所需的 Arxiv 主题类别代码（例如，`cs.AI`，`math.ST`）。请参阅 Arxiv 文档了解可用类别列表。
+    *   使用 `--user_interest` 指定您的特定兴趣领域（例如，`"机器学习, 自然语言处理"`）。如果提供，论文将根据相关性进行评分和排序。如果省略，所有论文的相关性将为 0。
+    *   使用 `--filter_level` 根据相关性过滤论文。选项包括 `"low"`（分数 >=0）、`"mid"`（分数 >=1）、`"high"`（分数 >=2）或 `"none"`（不进行过滤）。如果设置了过滤级别，则只有相关性高于或等于指定级别的论文才会被摘要。这可以通过避免摘要不相关的论文来节省 token。
 
 ## 重要提示
 

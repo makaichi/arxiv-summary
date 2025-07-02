@@ -3,7 +3,7 @@
  * @Date: 2025-06-24 11:29:48
  * @Description: 
  * @FilePath: /arxiv-summary/readme.md
- * @LastEditTime: 2025-06-26 10:24:15
+ * @LastEditTime: 2025-07-02 14:27:31
 -->
 # Arxiv Summarizer with OpenAI and Feishu Webhook
 
@@ -40,7 +40,6 @@ Follow these steps to set up the Arxiv Summarizer:
     *   In the same "Settings -> Security -> Secrets and variables -> Actions -> Variables" section, add the following variables:
         *   **`OPENAI_MODEL_NAME`:** The name of the OpenAI model you want to use for summarization (e.g., `gpt-3.5-turbo`, `gpt-4`). Refer to the OpenAI documentation for available models.
         *   **`SUMMARY_LANGUAGE`:**  The language in which you want the summary to be generated (e.g., `English`, `Chinese`).
-		*   **`USER_INTEREST`:** (Optional) Your specific areas of interest (e.g., speech recognition, neural networks, audio processing). If provided, the papers will be scored for relevance to these keywords and sorted accordingly. If left blank, all papers will be treated with equal relevance.
 
 4.  **Configure the Workflow:**
 
@@ -56,13 +55,15 @@ The Arxiv summarizer will run automatically according to the schedule defined in
 
 ## Customization
 
-*   **Subject Category:** The script currently summarizes papers from the `eess.AS` category (Audio and Speech Processing).  You can change this by modifying the argument passed to the `arxiv_summarizer.py` script in the `.github/workflows/eess.AS.yml` file:
+*   **Subject Category, User Interest, and Filtering:** The script currently summarizes papers from the `eess.AS` category (Audio and Speech Processing). You can customize the behavior by modifying the arguments passed to the `arxiv_summarizer.py` script in the `.github/workflows/eess.AS.yml` file:
 
     ```yaml
-        run: python arxiv_summarizer.py YOUR_CATEGORY
+        run: python arxiv_summarizer.py YOUR_CATEGORY --user_interest "your, interests" --filter_level "mid"
     ```
 
-    Replace `YOUR_CATEGORY` with the desired Arxiv subject category code (e.g., `cs.AI`, `math.ST`).  Refer to the Arxiv documentation for a list of available categories.
+    *   Replace `YOUR_CATEGORY` with the desired Arxiv subject category code (e.g., `cs.AI`, `math.ST`). Refer to the Arxiv documentation for a list of available categories.
+    *   Use `--user_interest` to specify your specific areas of interest (e.g., `"machine learning, NLP"`). If provided, papers will be scored for relevance and sorted. If omitted, all papers will have relevance 0.
+    *   Use `--filter_level` to filter papers based on relevance. Options are `"low"` (score >=0), `"mid"` (score >=1), `"high"` (score >=2), or `"none"` (no filtering). If a filter level is set, only papers with relevance higher than or equal to the specified level will be summarized. This can help save tokens by avoiding summarization of less relevant papers.
 
 ## Important Notes
 

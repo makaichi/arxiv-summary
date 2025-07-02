@@ -42,16 +42,10 @@ class ArxivSummarizer:
         self.openai_model_name = os.getenv("OPENAI_MODEL_NAME", "gpt-3.5-turbo")  # Default model
         self.summary_language = os.getenv("SUMMARY_LANGUAGE", "English")  # Default language
         self.webhook_url = os.getenv("WEBHOOK_URL")
-        self.user_interest = os.getenv("USER_INTEREST") 
 
         if not self.openai_api_key:
             logging.error("OPENAI_API_KEY not found in environment variables.")
             raise ValueError("OPENAI_API_KEY is required.")
-        
-        if self.user_interest:
-            logging.info(f"User interest specified: '{self.user_interest}'")
-        else:
-            logging.info("No user interest specified. All papers will have relevance 0.")
 
 
     def _handle_exception(self, e, message="An error occurred:"):
@@ -194,13 +188,21 @@ class ArxivSummarizer:
             return 0 # Default to low relevance on general error
 
 
-    def process_arxiv_url(self, category: str) -> list[dict] | None:
+    def process_arxiv_url(self, category: str, user_interest: str | None = None, filter_level: str = "none") -> list[dict] | None:
         """
         Main function to orchestrate the process of fetching, summarizing, and evaluating papers.
         Returns a list of processed paper metadata dictionaries.
         """
         arxiv_url = f"https://arxiv.org/list/{category}/new"
         papers = []
+        
+        # Define relevance score mapping for filtering
+        relevance_thresholds = {"low": 0, "mid": 1, "high": 2, "none": -1} # -1 means no filtering
+        if not user_interest and filter_level != "none":
+            logging.warning(f"User interest not specified, but filter level '{filter_level}' is set. Skipping filtering.")
+            filter_level = "none"
+        min_relevance_score = relevance_thresholds.get(filter_level.lower(), -1)
+
         try:
             paper_links = self.get_paper_links_from_arxiv_page(arxiv_url)
 
@@ -211,12 +213,25 @@ class ArxivSummarizer:
                     metadata = self.get_paper_metadata(paper_id)
                     title = metadata["title"]
                     abstract = metadata["abstract"]
+                    
+                    relevance_score = 0 # Default to 0
+                    if user_interest:
+                        relevance_score = self.evaluate_relevance(title, abstract, user_interest)
+                        logging.info(f"Relevance for '{title}': {relevance_score}")
+                    
+                    metadata["relevance"] = relevance_score
+
+                    # Apply filtering based on relevance_score and filter_level
+                    if min_relevance_score != -1 and relevance_score < min_relevance_score:
+                        logging.info(f"Paper '{title}' (ID: {paper_id}) has relevance {relevance_score}, which is below filter level '{filter_level}' ({min_relevance_score}). Skipping summarization.")
+                        continue # Skip to the next paper
+
                     translated_title, summary = self.summarize_paper(title, abstract)
                     metadata["summary"] = summary
                     metadata["translated_title"] = translated_title
 
-                    if self.user_interest:
-                        relevance_score = self.evaluate_relevance(title, abstract, self.user_interest)
+                    if user_interest:
+                        relevance_score = self.evaluate_relevance(title, abstract, user_interest)
                         metadata["relevance"] = relevance_score
                         logging.info(f"Relevance for '{title}': {relevance_score}")
                     else:
@@ -235,12 +250,7 @@ class ArxivSummarizer:
                 logging.warning("No papers were successfully processed.")
                 return None # Indicate no papers were processed
 
-            # --- Sort papers by relevance if user_interest is set ---
-            if self.user_interest:
-                # Sort by relevance (descending)
-                papers.sort(key=lambda x: x.get("relevance", 0), reverse=True)
-                logging.info(f"Sorted {len(papers)} papers by relevance (descending).")
-            # --- End sorting ---
+            # Sorting is now handled in the run method.
 
             return papers
 
@@ -310,12 +320,17 @@ class ArxivSummarizer:
             logging.error(f"An error occurred while sending webhook for batch '{category_with_suffix}': {e}")
             return None
 
-    def run(self, category: str, max_papers_split: int = 10):
+    def run(self, category: str, max_papers_split: int = 10, user_interest: str | None = None, filter_level: str = "none"):
         logging.info(f"Starting Arxiv summarization for category: {category}")
-        papers = self.process_arxiv_url(category)
+        papers = self.process_arxiv_url(category, user_interest, filter_level)
         if not papers:
             logging.warning("Processing failed or no papers were found. Exiting.")
             return # Exit gracefully if no papers or error during processing
+        
+        # Sort papers by relevance if user_interest is set
+        if user_interest:
+            papers.sort(key=lambda x: x.get("relevance", 0), reverse=True)
+            logging.info(f"Sorted {len(papers)} papers by relevance (descending).")
 
         if self.webhook_url:
             num_splits = (len(papers) + max_papers_split - 1) // max_papers_split
@@ -345,12 +360,25 @@ if __name__ == "__main__":
         default=10,
         help="Maximum number of papers to send in a single webhook request (default: 10)",
     )
+    parser.add_argument(
+        "--user_interest",
+        type=str,
+        default=None,
+        help="User's area of interest for relevance evaluation (e.g., 'machine learning, NLP'). If not provided, all papers will have relevance 0.",
+    )
+    parser.add_argument(
+        "--filter_level",
+        type=str,
+        default="none",
+        choices=["low", "mid", "high", "none"],
+        help="Filter papers based on relevance: 'low' (score >=0), 'mid' (score >=1), 'high' (score >=2), 'none' (no filtering). Default: 'none'.",
+    )
 
     args = parser.parse_args()
 
     try:
         summarizer = ArxivSummarizer()
-        summarizer.run(args.category, args.max_papers_split)
+        summarizer.run(args.category, args.max_papers_split, args.user_interest, args.filter_level)
     except ValueError as e:
         logging.critical(f"Configuration error: {e}. Please check your .env file.")
     except Exception as e:
