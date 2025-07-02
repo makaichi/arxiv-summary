@@ -81,25 +81,26 @@ class ArxivSummarizer:
                         context_lines = self._filter_latex_lines(context_lines)
                         joined_context = "\n".join(context_lines)
 
-                        prompt = f"""The following lines are extracted from a .tex file. Your task is to identify and extract the author affiliations.
-**Crucially, only extract the top-level affiliation (e.g., University name, Company name, Research Institute name), avoiding overly specific details like departments, schools, labs, or specific addresses.**
-Tex content:
-{joined_context}
-Output Format:
-- If there are affiliations, list them without numbering, separated by semicolons (;).
-- If the number of unique top-level affiliations is more than three, list the first three, followed by "etc." to indicate the rest.
-- Respond in {self.summary_language}.
-- If no affiliations are found, respond with 'None'.
-- **Do not respond with anything other than the affiliations!**
-Examples of desired output (assuming English):
-- "University of Example; Tech Innovations Inc."
-- "University A; Company B; Research Institute C; etc."
-- "None"
-Examples of what to avoid (too detailed):
-- "Department of Physics, University of Example" -> should be "University of Example"
-- "AI Lab, C Company" -> should be "C Company"
-- "School of Computer Science, University Z, City X" -> should be "University Z"
-"""
+                        prompt = f"""The following lines are extracted from a .tex file.
+                        Your task is to identify and extract the author affiliations.
+                        Tex content:
+                        {joined_context}
+                        Output Format:
+                        - Only extract the top-level affiliation (e.g., University name, Company name, Research Institute name), avoiding overly specific details like departments, schools, or specific addresses.
+                        - If there are affiliations, list them without numbering, separated by semicolons (;).
+                        - If the number of unique top-level affiliations is more than three, list the first three, followed by "etc." to indicate the rest.
+                        - Respond in {self.summary_language}.
+                        - If no affiliations are found, respond with 'None'.
+                        - **Do not respond with anything other than the affiliations!**
+                        Examples of desired output (assuming English, do not include the double quotes):
+                        - "University of Example; Tech Innovations Inc."
+                        - "University A; Company B; Research Institute C; etc."
+                        - "None"
+                        Examples of what to avoid (too detailed):
+                        - "Department of Physics, University of Example" -> should be "University of Example"
+                        - "AI Lab, Company C, Country P" -> should be "Company C"
+                        - "School of Computer Science, University Z, City X" -> should be "University Z"
+                        """
 
                         completion = self.client.chat.completions.create(
                             model=self.openai_model_name,
