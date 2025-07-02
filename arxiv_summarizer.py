@@ -1,8 +1,10 @@
 import datetime
+import io
 import json
 import logging
 import os
 import sys
+import tarfile
 
 import arxiv
 import openai
@@ -24,9 +26,9 @@ class ArxivSummarizer:
         self._setup_logging()  # Initialize logging
         self._load_environment_variables()
         self.client = openai.OpenAI(
-            api_key=self.openai_api_key, 
+            api_key=self.openai_api_key,
             base_url=self.openai_base_url,
-            max_retries=5, # Enable retries
+            max_retries=5,  # Enable retries
         )
 
     def _setup_logging(self):
@@ -51,13 +53,68 @@ class ArxivSummarizer:
             logging.error("OPENAI_API_KEY not found in environment variables.")
             raise ValueError("OPENAI_API_KEY is required.")
 
+    def get_author_affiliations_from_tex(self, paper_id: str) -> str | None:
+        """
+        Fetches and extracts author affiliations from the TeX source of an arXiv paper.
+        """
+        try:
+            url = f"https://arxiv.org/src/{paper_id}"
+            logging.info(f"Fetching TeX source from: {url}")
+            response = requests.get(url)
+            response.raise_for_status()
 
-    def _handle_exception(self, e, message="An error occurred:"):
-        """Logs and potentially re-raises an exception."""
-        logging.exception(f"{message} {e}")
-        raise  # Re-raise to stop execution (or handle differently if needed)
+            with tarfile.open(fileobj=io.BytesIO(response.content), mode="r:gz") as tar:
+                tex_files = [m for m in tar.getmembers() if m.name.endswith(".tex")]
+                if not tex_files:
+                    logging.warning(f"No .tex files found in the archive for paper {paper_id}.")
+                    return None
 
-    def get_paper_links_from_arxiv_page(self, url: str) -> list[str]:
+                for member in tex_files:
+                    tex_content = tar.extractfile(member).read().decode("utf-8", errors="ignore")
+                    if r"\author" in tex_content:
+                        lines = tex_content.splitlines()
+                        author_line_indices = [
+                            i for i, line in enumerate(lines) if line.strip().startswith(r"\author")
+                        ]
+                        if not author_line_indices:
+                            continue
+
+                        start_index = max(0, author_line_indices[0] - 20)
+                        end_index = min(len(lines), author_line_indices[-1] + 20)
+
+                        context_lines = lines[start_index:end_index]
+
+                        prompt = f"""The following lines are extracted from a .tex file. Please identify the author affiliations.
+                        Tex content:
+                        {"\n".join(context_lines)}
+                        
+                        If the number of affiliations is more than three, use etc (等) to indicate the rest, and use ';' to separate them.
+                        Respond in {self.summary_language}. If no affiliations are found, respond with 'None'.
+                        ** Do not respond with anything other than the affiliations! **
+                        """
+
+                        print(prompt)
+                        completion = self.client.chat.completions.create(
+                            model=self.openai_model_name,
+                            messages=[{"role": "user", "content": prompt}],
+                            temperature=0.0,
+                        )
+                        affiliations = completion.choices[0].message.content.strip()
+                        if affiliations.lower().startswith("none"):
+                            return None
+                        return affiliations
+            return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Network error fetching TeX source for paper {paper_id}: {e}")
+            return None
+        except tarfile.TarError as e:
+            logging.error(f"Error extracting TeX source for paper {paper_id}: {e}")
+            return None
+        except Exception as e:
+            logging.error(f"Error processing TeX source for paper {paper_id}: {e}")
+            return None
+
+    def get_paper_links_from_arxiv_page(self, url: str) -> list:
         """
         Fetches all paper links (starting with /abs/) from an arXiv page.
         """
@@ -73,10 +130,11 @@ class ArxivSummarizer:
             return links
         except requests.exceptions.RequestException as e:
             logging.error(f"Network error fetching arXiv page {url}: {e}")
-            raise  # Re-raise the exception to be handled upstream
+            return []  # Re-raise the exception to be handled upstream
         except Exception as e:
             # Use _handle_exception for consistency if it should halt execution
-            self._handle_exception(e, "Error parsing arXiv page:") 
+            logging.error(f"Error parsing arXiv page {url}: {e}")
+            return []
 
     def get_paper_metadata(self, paper_id: str) -> dict:
         """
@@ -92,11 +150,15 @@ class ArxivSummarizer:
             # Limit authors to avoid overly long strings
             if len(authors) > 3:
                 authors = authors[:2] + ["et al."]
+            affiliations = self.get_author_affiliations_from_tex(paper_id)
+            if not affiliations:
+                logging.info(f"No affiliations found for paper {paper_id}")
             return {
                 "title": paper.title,
                 "authors": ", ".join(authors),
+                "affiliations": affiliations,
                 "abstract": paper.summary,
-                "url": paper.entry_id.replace("http://", "https://"), # Ensure HTTPS
+                "url": paper.entry_id.replace("http://", "https://"),  # Ensure HTTPS
             }
 
         except Exception as e:
@@ -119,7 +181,7 @@ class ArxivSummarizer:
             summary_completion = self.client.chat.completions.create(
                 model=self.openai_model_name,
                 messages=[{"role": "user", "content": summary_prompt}],
-                temperature=0.7 # Can be a bit creative for summary
+                temperature=0.7,  # Can be a bit creative for summary
             )
             summary = summary_completion.choices[0].message.content.strip()
 
@@ -128,7 +190,7 @@ class ArxivSummarizer:
             title_completion = self.client.chat.completions.create(
                 model=self.openai_model_name,
                 messages=[{"role": "user", "content": title_prompt}],
-                temperature=0.0 # Strict translation
+                temperature=0.0,  # Strict translation
             )
             translated_title = title_completion.choices[0].message.content.strip()
 
@@ -168,42 +230,51 @@ class ArxivSummarizer:
             completion = self.client.chat.completions.create(
                 model=self.openai_model_name,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.0, # Make it deterministic for score
-                max_tokens=1 # We only expect a single digit
+                temperature=0.0,  # Make it deterministic for score
+                max_tokens=1,  # We only expect a single digit
             )
             score_str = completion.choices[0].message.content.strip()
             try:
                 score = int(score_str)
                 if score not in [0, 1, 2]:
-                    logging.warning(f"LLM returned an unexpected relevance score: '{score_str}'. Defaulting to 0 for paper '{title}'.")
+                    logging.warning(
+                        f"LLM returned an unexpected relevance score: '{score_str}'. Defaulting to 0 for paper '{title}'."
+                    )
                     return 0
                 return score
             except ValueError:
-                logging.warning(f"Could not parse relevance score (not an integer) from LLM for paper '{title}'. Response was: '{score_str}'. Defaulting to 0.")
+                logging.warning(
+                    f"Could not parse relevance score (not an integer) from LLM for paper '{title}'. Response was: '{score_str}'. Defaulting to 0."
+                )
                 return 0
         except openai.APIConnectionError as e:
             logging.error(f"Failed to connect to OpenAI API for relevance check: {e}")
-            raise # Re-raise critical API errors
+            raise  # Re-raise critical API errors
         except openai.RateLimitError as e:
             logging.error(f"OpenAI API rate limit exceeded for relevance check: {e}")
-            raise # Re-raise critical API errors
-        except Exception as e: # Catch any other unexpected errors from OpenAI client
-            logging.error(f"An unexpected error occurred during relevance evaluation for paper '{title}': {e}")
-            return 0 # Default to low relevance on general error
+            raise  # Re-raise critical API errors
+        except Exception as e:  # Catch any other unexpected errors from OpenAI client
+            logging.error(
+                f"An unexpected error occurred during relevance evaluation for paper '{title}': {e}"
+            )
+            return 0  # Default to low relevance on general error
 
-
-    def process_arxiv_url(self, category: str, user_interest: str | None = None, filter_level: str = "none") -> list[dict] | None:
+    def process_arxiv_url(
+        self, category: str, user_interest: str | None = None, filter_level: str = "none"
+    ) -> list[dict] | None:
         """
         Main function to orchestrate the process of fetching, summarizing, and evaluating papers.
         Returns a list of processed paper metadata dictionaries.
         """
         arxiv_url = f"https://arxiv.org/list/{category}/new"
         papers = []
-        
+
         # Define relevance score mapping for filtering
-        relevance_thresholds = {"low": 0, "mid": 1, "high": 2, "none": -1} # -1 means no filtering
+        relevance_thresholds = {"low": 0, "mid": 1, "high": 2, "none": -1}  # -1 means no filtering
         if not user_interest and filter_level != "none":
-            logging.warning(f"User interest not specified, but filter level '{filter_level}' is set. Skipping filtering.")
+            logging.warning(
+                f"User interest not specified, but filter level '{filter_level}' is set. Skipping filtering."
+            )
             filter_level = "none"
         min_relevance_score = relevance_thresholds.get(filter_level.lower(), -1)
 
@@ -217,18 +288,20 @@ class ArxivSummarizer:
                     metadata = self.get_paper_metadata(paper_id)
                     title = metadata["title"]
                     abstract = metadata["abstract"]
-                    
-                    relevance_score = 0 # Default to 0
+
+                    relevance_score = 0  # Default to 0
                     if user_interest:
                         relevance_score = self.evaluate_relevance(title, abstract, user_interest)
                         logging.info(f"Relevance for '{title}': {relevance_score}")
-                    
+
                     metadata["relevance"] = relevance_score
 
                     # Apply filtering based on relevance_score and filter_level
                     if min_relevance_score != -1 and relevance_score < min_relevance_score:
-                        logging.info(f"Paper '{title}' (ID: {paper_id}) has relevance {relevance_score}, which is below filter level '{filter_level}' ({min_relevance_score}). Skipping summarization.")
-                        continue # Skip to the next paper
+                        logging.info(
+                            f"Paper '{title}' (ID: {paper_id}) has relevance {relevance_score}, which is below filter level '{filter_level}' ({min_relevance_score}). Skipping summarization."
+                        )
+                        continue  # Skip to the next paper
 
                     translated_title, summary = self.summarize_paper(title, abstract)
                     metadata["summary"] = summary
@@ -239,12 +312,14 @@ class ArxivSummarizer:
                         metadata["relevance"] = relevance_score
                         logging.info(f"Relevance for '{title}': {relevance_score}")
                     else:
-                        metadata["relevance"] = 0 # Default to 0 if no interest specified
+                        metadata["relevance"] = 0  # Default to 0 if no interest specified
 
                     papers.append(metadata)
                 except (openai.APIConnectionError, openai.RateLimitError) as e:
                     # Log a warning and skip to the next paper if retries fail.
-                    logging.warning(f"OpenAI API error for paper ID {paper_id} after retries: {e}. Skipping paper.")
+                    logging.warning(
+                        f"OpenAI API error for paper ID {paper_id} after retries: {e}. Skipping paper."
+                    )
                     continue
                 except Exception as e:
                     # For other errors (e.g., arxiv library, parsing), just log and continue to the next paper
@@ -252,7 +327,7 @@ class ArxivSummarizer:
 
             if not papers:
                 logging.warning("No papers were successfully processed.")
-                return None # Indicate no papers were processed
+                return None  # Indicate no papers were processed
 
             # Sorting is now handled in the run method.
 
@@ -289,10 +364,14 @@ class ArxivSummarizer:
                 message_text += f"Title: {paper_data['title']}\n"
                 message_text += f"{paper_data['translated_title']}\n"
                 message_text += f"Authors: {paper_data['authors']}\n"
+                if paper_data.get("affiliations"):
+                    message_text += f"Affiliations: {paper_data['affiliations']}\n"
                 message_text += f"URL: {paper_data['url']}\n"
-                if "relevance" in paper_data: # Add relevance if it exists
+                if "relevance" in paper_data:  # Add relevance if it exists
                     relevance_map = {0: "Low", 1: "Medium", 2: "High"}
-                    message_text += f"Relevance: {relevance_map.get(paper_data['relevance'], 'N/A')}\n"
+                    message_text += (
+                        f"Relevance: {relevance_map.get(paper_data['relevance'], 'N/A')}\n"
+                    )
                 message_text += f"Summary: {paper_data['summary']}\n\n"
             # Remove the trailing newline characters
             message_text = message_text.rstrip("\n")
@@ -307,12 +386,16 @@ class ArxivSummarizer:
 
             # Send the request to the webhook.
             headers = {"Content-Type": "application/json"}
-            logging.info(f"Sending {len(data_list)} papers to webhook for category {category_with_suffix}...")
+            logging.info(
+                f"Sending {len(data_list)} papers to webhook for category {category_with_suffix}..."
+            )
             response = requests.post(self.webhook_url, data=json_payload, headers=headers)
 
             # Check the response status code.
             if response.status_code == 200:
-                logging.info(f"Successfully sent data for {len(data_list)} papers in batch '{category_with_suffix}'.")
+                logging.info(
+                    f"Successfully sent data for {len(data_list)} papers in batch '{category_with_suffix}'."
+                )
                 return response
             else:
                 logging.error(
@@ -321,16 +404,24 @@ class ArxivSummarizer:
                 return None
 
         except Exception as e:
-            logging.error(f"An error occurred while sending webhook for batch '{category_with_suffix}': {e}")
+            logging.error(
+                f"An error occurred while sending webhook for batch '{category_with_suffix}': {e}"
+            )
             return None
 
-    def run(self, category: str, max_papers_split: int = 10, user_interest: str | None = None, filter_level: str = "none"):
+    def run(
+        self,
+        category: str,
+        max_papers_split: int = 10,
+        user_interest: str | None = None,
+        filter_level: str = "none",
+    ):
         logging.info(f"Starting Arxiv summarization for category: {category}")
         papers = self.process_arxiv_url(category, user_interest, filter_level)
         if not papers:
             logging.warning("Processing failed or no papers were found. Exiting.")
-            return # Exit gracefully if no papers or error during processing
-        
+            return  # Exit gracefully if no papers or error during processing
+
         # Sort papers by relevance if user_interest is set
         if user_interest:
             papers.sort(key=lambda x: x.get("relevance", 0), reverse=True)
@@ -387,4 +478,3 @@ if __name__ == "__main__":
         logging.critical(f"Configuration error: {e}. Please check your .env file.")
     except Exception as e:
         logging.critical(f"An unrecoverable error occurred during execution: {e}", exc_info=True)
-
