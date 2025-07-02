@@ -71,18 +71,12 @@ class ArxivSummarizer:
 
                 for member in tex_files:
                     tex_content = tar.extractfile(member).read().decode("utf-8", errors="ignore")
-                    if r"\author" in tex_content:
+                    if r"\documentclass" in tex_content:
                         lines = tex_content.splitlines()
-                        author_line_indices = [
-                            i for i, line in enumerate(lines) if line.strip().startswith(r"\author")
-                        ]
-                        if not author_line_indices:
-                            continue
-
-                        start_index = max(0, author_line_indices[0] - 20)
-                        end_index = min(len(lines), author_line_indices[-1] + 20)
-
+                        start_index = 0
+                        end_index = min(len(lines), 150)
                         context_lines = lines[start_index:end_index]
+                        context_lines = self._filter_latex_lines(context_lines)
                         joined_context = "\n".join(context_lines)
 
                         prompt = f"""The following lines are extracted from a .tex file. Please identify the author affiliations.
@@ -94,7 +88,6 @@ class ArxivSummarizer:
                         ** Do not respond with anything other than the affiliations! **
                         """
 
-                        print(prompt)
                         completion = self.client.chat.completions.create(
                             model=self.openai_model_name,
                             messages=[{"role": "user", "content": prompt}],
@@ -114,6 +107,65 @@ class ArxivSummarizer:
         except Exception as e:
             logging.error(f"Error processing TeX source for paper {paper_id}: {e}")
             return None
+
+    @staticmethod
+    def _filter_latex_lines(lines_list: list[str]) -> list[str]:
+        """Filter out lines that seem not include affiliation information to save tokens."""
+        exclude_prefixes = [
+            "%",  # Comments
+            "\\usepackage",
+            "\\documentclass",
+            "\\definecolor",
+            "\\setlength",
+            "\\newcommand",
+            "\\renewcommand",
+            "\\begin",
+            "\\end",
+            "\\input",
+            "\\include",
+            "\\section",
+            "\\subsection",
+            "\\subsubsection",
+            "\\paragraph",
+            "\\subparagraph",
+            "\\label",
+            "\\ref",
+            "\\eqref",
+            "\\cite",
+            "\\footnote",
+            "\\maketitle",
+            "\\date",
+            "\\thanks",
+            "\\graphicspath",
+            "\\includegraphics",
+            "\\url",
+            "\\href",
+            "\\pagestyle",
+            "\\thispagestyle",
+            "\\item",
+            "\\caption",
+            "\\figure",
+            "\\table",
+            "\\keywords",
+            "\\abstract",
+            "\\document",
+        ]
+        filtered_lines = []
+        for line in lines_list:
+            line = line.strip()
+            # Skip empty lines
+            if not line:
+                continue
+            # Check against exclusion prefixes (case-insensitive for commands)
+            is_excluded = False
+            for prefix in exclude_prefixes:
+                # For comments, we check directly
+                if line.startswith(prefix):
+                    is_excluded = True
+                    break
+            if not is_excluded:
+                filtered_lines.append(line)
+        return filtered_lines
 
     def get_paper_links_from_arxiv_page(self, url: str) -> list:
         """
