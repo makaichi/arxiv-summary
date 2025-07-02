@@ -23,7 +23,11 @@ class ArxivSummarizer:
         """
         self._setup_logging()  # Initialize logging
         self._load_environment_variables()
-        self.client = openai.OpenAI(api_key=self.openai_api_key, base_url=self.openai_base_url)
+        self.client = openai.OpenAI(
+            api_key=self.openai_api_key, 
+            base_url=self.openai_base_url,
+            max_retries=5, # Enable retries
+        )
 
     def _setup_logging(self):
         """Configures logging."""
@@ -239,9 +243,9 @@ class ArxivSummarizer:
 
                     papers.append(metadata)
                 except (openai.APIConnectionError, openai.RateLimitError) as e:
-                    # These are critical errors, re-raise to stop processing
-                    logging.error(f"Critical OpenAI API error encountered for paper ID {paper_id}: {e}")
-                    raise # Stop the entire run
+                    # Log a warning and skip to the next paper if retries fail.
+                    logging.warning(f"OpenAI API error for paper ID {paper_id} after retries: {e}. Skipping paper.")
+                    continue
                 except Exception as e:
                     # For other errors (e.g., arxiv library, parsing), just log and continue to the next paper
                     logging.error(f"Failed to process paper ID {paper_id}. Error: {e}")
