@@ -73,20 +73,33 @@ class ArxivSummarizer:
                     tex_content = tar.extractfile(member).read().decode("utf-8", errors="ignore")
                     if r"\documentclass" in tex_content:
                         lines = tex_content.splitlines()
+                        # Filter out lines containing LaTeX comments
+                        lines = [line for line in lines if not line.startswith("%")]
                         start_index = 0
                         end_index = min(len(lines), 150)
                         context_lines = lines[start_index:end_index]
                         context_lines = self._filter_latex_lines(context_lines)
                         joined_context = "\n".join(context_lines)
 
-                        prompt = f"""The following lines are extracted from a .tex file. Please identify the author affiliations.
-                        Tex content:
-                        {joined_context}
-                        
-                        If the number of affiliations is more than three, use etc (等) to indicate the rest, and use ';' to separate them.
-                        Respond in {self.summary_language}. If no affiliations are found, respond with 'None'.
-                        ** Do not respond with anything other than the affiliations! **
-                        """
+                        prompt = f"""The following lines are extracted from a .tex file. Your task is to identify and extract the author affiliations.
+**Crucially, only extract the top-level affiliation (e.g., University name, Company name, Research Institute name), avoiding overly specific details like departments, schools, labs, or specific addresses.**
+Tex content:
+{joined_context}
+Output Format:
+- If there are affiliations, list them without numbering, separated by semicolons (;).
+- If the number of unique top-level affiliations is more than three, list the first three, followed by "etc." to indicate the rest.
+- Respond in {self.summary_language}.
+- If no affiliations are found, respond with 'None'.
+- **Do not respond with anything other than the affiliations!**
+Examples of desired output (assuming English):
+- "University of Example; Tech Innovations Inc."
+- "University A; Company B; Research Institute C; etc."
+- "None"
+Examples of what to avoid (too detailed):
+- "Department of Physics, University of Example" -> should be "University of Example"
+- "AI Lab, C Company" -> should be "C Company"
+- "School of Computer Science, University Z, City X" -> should be "University Z"
+"""
 
                         completion = self.client.chat.completions.create(
                             model=self.openai_model_name,
@@ -112,7 +125,6 @@ class ArxivSummarizer:
     def _filter_latex_lines(lines_list: list[str]) -> list[str]:
         """Filter out lines that seem not include affiliation information to save tokens."""
         exclude_prefixes = [
-            "%",  # Comments
             "\\usepackage",
             "\\documentclass",
             "\\definecolor",
@@ -132,10 +144,11 @@ class ArxivSummarizer:
             "\\ref",
             "\\eqref",
             "\\cite",
+            "\\fontsize",
+            "\\hypersetup",
             "\\footnote",
             "\\maketitle",
             "\\date",
-            "\\thanks",
             "\\graphicspath",
             "\\includegraphics",
             "\\url",
